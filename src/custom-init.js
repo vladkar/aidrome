@@ -17,15 +17,73 @@ console.log("🎨 custom-init.js injected");
     }
   };
 
+  // Store pending OpenAI keys by server ID
+  const pendingOpenAIKeys = new Map();
+
+  // Intercept localStorage.setItem to inject OpenAI keys
+  const originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(key, value) {
+    if (key === "store_authentication" && pendingOpenAIKeys.size > 0) {
+      try {
+        const data = JSON.parse(value);
+
+        // Inject pending OpenAI keys into the data before saving
+        pendingOpenAIKeys.forEach((openaiKey, serverId) => {
+          // Update currentServer if it matches
+          if (data?.state?.currentServer?.id === serverId) {
+            data.state.currentServer.openaiKey = openaiKey;
+          }
+
+          // Update serverList
+          if (data?.state?.serverList?.[serverId]) {
+            data.state.serverList[serverId].openaiKey = openaiKey;
+          }
+        });
+
+        value = JSON.stringify(data);
+        // Silent interception - only log errors
+      } catch (e) {
+        console.error("❌ Error intercepting localStorage:", e);
+      }
+    }
+
+    return originalSetItem(key, value);
+  };
+
   // Function to save OpenAI key to storage
   const saveOpenAIKey = (key) => {
     try {
       const auth = JSON.parse(localStorage.getItem("store_authentication") || "{}");
-      if (auth?.state?.currentServer) {
-        auth.state.currentServer.openaiKey = key;
-        localStorage.setItem("store_authentication", JSON.stringify(auth));
-        console.log("✅ OpenAI key saved securely");
+
+      if (!auth?.state?.currentServer) {
+        console.warn("⚠️ No current server found, cannot save OpenAI key");
+        return;
       }
+
+      const serverId = auth.state.currentServer.id;
+
+      // Store the key for interception
+      pendingOpenAIKeys.set(serverId, key);
+
+      // Save to currentServer
+      auth.state.currentServer.openaiKey = key;
+
+      // Also save to serverList for persistence
+      if (auth.state.serverList && serverId && auth.state.serverList[serverId]) {
+        auth.state.serverList[serverId].openaiKey = key;
+      }
+
+      originalSetItem("store_authentication", JSON.stringify(auth));
+      console.log("✅ OpenAI key saved for server:", serverId.substring(0, 8) + "...");
+
+      // Verify the save worked
+      setTimeout(() => {
+        const verify = JSON.parse(localStorage.getItem("store_authentication") || "{}");
+        const savedKey = verify?.state?.currentServer?.openaiKey;
+        if (savedKey !== key) {
+          console.warn("⚠️ OpenAI key was overwritten, but interceptor will restore it");
+        }
+      }, 100);
     } catch (e) {
       console.error("❌ Error saving OpenAI key:", e);
     }
@@ -123,17 +181,19 @@ console.log("🎨 custom-init.js injected");
     let initialAuthState = null;
 
     form.addEventListener("submit", (e) => {
-      console.log("📝 Form submitted, will save OpenAI key only if auth succeeds...");
+      console.log("📝 Form submitted, monitoring authentication...");
 
       // Capture the initial state
       try {
         const authData = JSON.parse(localStorage.getItem("store_authentication") || "{}");
+        const serverListCount = authData?.state?.serverList ? Object.keys(authData.state.serverList).length : 0;
         initialAuthState = {
-          serverCount: authData?.state?.servers?.length || 0,
-          currentServerId: authData?.state?.currentServer?.id || null
+          serverCount: serverListCount,
+          currentServerId: authData?.state?.currentServer?.id || null,
+          hasCurrentServer: !!authData?.state?.currentServer
         };
       } catch (e) {
-        initialAuthState = { serverCount: 0, currentServerId: null };
+        initialAuthState = { serverCount: 0, currentServerId: null, hasCurrentServer: false };
       }
 
       // Monitor localStorage for successful authentication
@@ -145,24 +205,22 @@ console.log("🎨 custom-init.js injected");
 
         try {
           const authData = JSON.parse(localStorage.getItem("store_authentication") || "{}");
-          const currentServerCount = authData?.state?.servers?.length || 0;
+          const serverListCount = authData?.state?.serverList ? Object.keys(authData.state.serverList).length : 0;
           const currentServerId = authData?.state?.currentServer?.id || null;
           const currentServer = authData?.state?.currentServer;
 
           // Check if authentication was successful by detecting:
-          // 1. Server was added/updated (server count changed OR currentServerId changed)
+          // 1. Server was added/updated (serverList count changed OR currentServerId changed)
           // 2. Current server has valid credentials
-          const serverAdded = currentServerCount > initialAuthState.serverCount;
+          const serverAdded = serverListCount > initialAuthState.serverCount;
           const serverChanged = currentServerId && currentServerId !== initialAuthState.currentServerId;
           const hasValidCreds = currentServer?.credential && currentServer?.url && currentServer?.username;
 
           if ((serverAdded || serverChanged) && hasValidCreds) {
-            console.log("✅ Authentication successful, saving OpenAI key...");
+            console.log("✅ Authentication successful");
 
             if (openaiKeyValue && openaiKeyValue.trim()) {
               saveOpenAIKey(openaiKeyValue);
-            } else {
-              console.log("ℹ️ No OpenAI key provided, skipping save");
             }
 
             clearInterval(authMonitor);
