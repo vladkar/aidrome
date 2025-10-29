@@ -5,6 +5,7 @@
 
 import { AuthUtils } from './auth-utils.js';
 import { SongFetcher } from './song-fetcher.js';
+import { OpenAIAgent } from './openai-agent.js';
 
 export class ContextMenuButton {
   constructor() {
@@ -53,7 +54,7 @@ export class ContextMenuButton {
   }
 
   /**
-   * Handle custom button click - fetch all songs
+   * Handle custom button click - fetch all songs and test OpenAI
    */
   async handleButtonClick() {
     console.log("🪄 Custom context action clicked!");
@@ -64,9 +65,16 @@ export class ContextMenuButton {
     }
 
     try {
+      // Step 1: Fetch all songs
       const songFetcher = new SongFetcher();
       const data = await songFetcher.fetchAllSongs();
       songFetcher.storeData(data);
+
+      // Step 2: Test OpenAI API connection
+      console.log("\n🤖 Starting OpenAI test...");
+      const openaiAgent = new OpenAIAgent();
+      await openaiAgent.sendTestMessage();
+
     } catch (e) {
       console.error("❌ Error in song fetch process:", e);
     }

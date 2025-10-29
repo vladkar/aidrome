@@ -4,6 +4,7 @@
  */
 
 import { AuthUtils } from './auth-utils.js';
+import { EncryptionUtils } from './encryption-utils.js';
 
 export class OpenAIFieldInjector {
   constructor() {
@@ -33,15 +34,15 @@ export class OpenAIFieldInjector {
           const data = JSON.parse(value);
 
           // Inject pending OpenAI keys into the data before saving
-          self.pendingOpenAIKeys.forEach((openaiKey, serverId) => {
+          self.pendingOpenAIKeys.forEach((openaiKeyEncrypted, serverId) => {
             // Update currentServer if it matches
             if (data?.state?.currentServer?.id === serverId) {
-              data.state.currentServer.openaiKey = openaiKey;
+              data.state.currentServer.openaiKeyEncrypted = openaiKeyEncrypted;
             }
 
             // Update serverList
             if (data?.state?.serverList?.[serverId]) {
-              data.state.serverList[serverId].openaiKey = openaiKey;
+              data.state.serverList[serverId].openaiKeyEncrypted = openaiKeyEncrypted;
             }
           });
 
@@ -56,12 +57,22 @@ export class OpenAIFieldInjector {
   }
 
   /**
-   * Get stored OpenAI key for current server
+   * Get stored OpenAI key for current server (decrypted)
    */
-  getStoredOpenAIKey() {
+  async getStoredOpenAIKey() {
     try {
       const server = AuthUtils.getCurrentServer();
-      return server?.openaiKey || "";
+      if (!server?.openaiKeyEncrypted) {
+        return "";
+      }
+
+      const decrypted = await EncryptionUtils.decrypt(
+        server.openaiKeyEncrypted,
+        server.id,
+        server.username
+      );
+
+      return decrypted || "";
     } catch (e) {
       console.error("❌ Error reading OpenAI key:", e);
       return "";
@@ -69,9 +80,9 @@ export class OpenAIFieldInjector {
   }
 
   /**
-   * Save OpenAI key to storage
+   * Save OpenAI key to storage (encrypted)
    */
-  saveOpenAIKey(key) {
+  async saveOpenAIKey(key) {
     try {
       const auth = AuthUtils.getAuthData();
 
@@ -81,26 +92,35 @@ export class OpenAIFieldInjector {
       }
 
       const serverId = auth.state.currentServer.id;
+      const username = auth.state.currentServer.username;
 
-      // Store the key for interception
-      this.pendingOpenAIKeys.set(serverId, key);
+      // Encrypt the key before storage
+      const encrypted = await EncryptionUtils.encrypt(key, serverId, username);
 
-      // Save to currentServer
-      auth.state.currentServer.openaiKey = key;
+      if (!encrypted) {
+        console.error("❌ Failed to encrypt OpenAI key");
+        return;
+      }
+
+      // Store the encrypted key for interception
+      this.pendingOpenAIKeys.set(serverId, encrypted);
+
+      // Save encrypted key to currentServer
+      auth.state.currentServer.openaiKeyEncrypted = encrypted;
 
       // Also save to serverList for persistence
       if (auth.state.serverList && serverId && auth.state.serverList[serverId]) {
-        auth.state.serverList[serverId].openaiKey = key;
+        auth.state.serverList[serverId].openaiKeyEncrypted = encrypted;
       }
 
       this.originalSetItem("store_authentication", JSON.stringify(auth));
-      console.log("✅ OpenAI key saved for server:", serverId.substring(0, 8) + "...");
+      console.log("✅ OpenAI key encrypted and saved for server:", serverId.substring(0, 8) + "...");
 
       // Verify the save worked
       setTimeout(() => {
         const verify = AuthUtils.getAuthData();
-        const savedKey = verify?.state?.currentServer?.openaiKey;
-        if (savedKey !== key) {
+        const savedKey = verify?.state?.currentServer?.openaiKeyEncrypted;
+        if (savedKey !== encrypted) {
           console.warn("⚠️ OpenAI key was overwritten, but interceptor will restore it");
         }
       }, 100);
@@ -112,14 +132,14 @@ export class OpenAIFieldInjector {
   /**
    * Create OpenAI API key input field
    */
-  createOpenAIField() {
+  async createOpenAIField() {
     const wrapper = document.createElement("div");
     wrapper.className = "_root_12yhx_1 _root_12yhx_1 m_f61ca620 mantine-PasswordInput-root m_46b77525 mantine-InputWrapper-root mantine-PasswordInput-root custom-openai-field";
     wrapper.setAttribute("data-variant", "default");
     wrapper.setAttribute("data-field-type", "openai-key");
     wrapper.id = this.openaiFieldId;
 
-    const storedKey = this.getStoredOpenAIKey();
+    const storedKey = await this.getStoredOpenAIKey();
     this.openaiKeyValue = storedKey;
 
     wrapper.innerHTML = `
@@ -281,17 +301,18 @@ export class OpenAIFieldInjector {
               const passwordWrapper = form.querySelector(".mantine-PasswordInput-root");
 
               if (passwordWrapper) {
-                // Insert OpenAI field after password field
-                const openaiField = this.createOpenAIField();
-                passwordWrapper.parentNode.insertBefore(
-                  openaiField,
-                  passwordWrapper.nextSibling
-                );
+                // Insert OpenAI field after password field (async)
+                this.createOpenAIField().then(openaiField => {
+                  passwordWrapper.parentNode.insertBefore(
+                    openaiField,
+                    passwordWrapper.nextSibling
+                  );
 
-                console.log("✅ OpenAI key field injected");
+                  console.log("✅ OpenAI key field injected");
 
-                // Intercept form submission
-                this.interceptFormSubmission(form);
+                  // Intercept form submission
+                  this.interceptFormSubmission(form);
+                });
               }
             }
           }
