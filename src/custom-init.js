@@ -119,29 +119,65 @@ console.log("🎨 custom-init.js injected");
 
   // Intercept form submission to save OpenAI key
   const interceptFormSubmission = (form) => {
-    // Handle submit button click
+    // Get the initial authentication state before submission
+    let initialAuthState = null;
+
     form.addEventListener("submit", (e) => {
-      console.log("📝 Form submitted, saving OpenAI key...");
+      console.log("📝 Form submitted, will save OpenAI key only if auth succeeds...");
 
-      // Wait a bit for authentication to complete, then save
-      setTimeout(() => {
-        if (openaiKeyValue) {
-          saveOpenAIKey(openaiKeyValue);
-        }
-      }, 1000);
-    });
-
-    // Also monitor localStorage for authentication success
-    const storageMonitor = setInterval(() => {
-      const auth = localStorage.getItem("store_authentication");
-      if (auth && openaiKeyValue) {
-        saveOpenAIKey(openaiKeyValue);
-        clearInterval(storageMonitor);
+      // Capture the initial state
+      try {
+        const authData = JSON.parse(localStorage.getItem("store_authentication") || "{}");
+        initialAuthState = {
+          serverCount: authData?.state?.servers?.length || 0,
+          currentServerId: authData?.state?.currentServer?.id || null
+        };
+      } catch (e) {
+        initialAuthState = { serverCount: 0, currentServerId: null };
       }
-    }, 500);
 
-    // Clean up after 10 seconds
-    setTimeout(() => clearInterval(storageMonitor), 10000);
+      // Monitor localStorage for successful authentication
+      let attempts = 0;
+      const maxAttempts = 20; // 10 seconds max (500ms intervals)
+
+      const authMonitor = setInterval(() => {
+        attempts++;
+
+        try {
+          const authData = JSON.parse(localStorage.getItem("store_authentication") || "{}");
+          const currentServerCount = authData?.state?.servers?.length || 0;
+          const currentServerId = authData?.state?.currentServer?.id || null;
+          const currentServer = authData?.state?.currentServer;
+
+          // Check if authentication was successful by detecting:
+          // 1. Server was added/updated (server count changed OR currentServerId changed)
+          // 2. Current server has valid credentials
+          const serverAdded = currentServerCount > initialAuthState.serverCount;
+          const serverChanged = currentServerId && currentServerId !== initialAuthState.currentServerId;
+          const hasValidCreds = currentServer?.credential && currentServer?.url && currentServer?.username;
+
+          if ((serverAdded || serverChanged) && hasValidCreds) {
+            console.log("✅ Authentication successful, saving OpenAI key...");
+
+            if (openaiKeyValue && openaiKeyValue.trim()) {
+              saveOpenAIKey(openaiKeyValue);
+            } else {
+              console.log("ℹ️ No OpenAI key provided, skipping save");
+            }
+
+            clearInterval(authMonitor);
+          } else if (attempts >= maxAttempts) {
+            console.log("⏱️ Authentication timeout - OpenAI key NOT saved");
+            clearInterval(authMonitor);
+          }
+        } catch (e) {
+          console.error("❌ Error monitoring authentication:", e);
+          if (attempts >= maxAttempts) {
+            clearInterval(authMonitor);
+          }
+        }
+      }, 500);
+    });
   };
 
   // Monitor for login form
