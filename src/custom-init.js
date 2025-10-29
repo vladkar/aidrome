@@ -73,9 +73,119 @@ console.log("🎨 custom-init.js injected");
       </div>
     `;
 
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       console.log("🪄 Custom context action clicked!");
-      alert("Custom action triggered!");
+
+      const startTime = Date.now();
+      console.log("🚀 STAGE 1: Fetching all songs for all artists...");
+
+      try {
+        // Stage 1: Get all artists
+        console.log("📊 Progress: Fetching artists list...");
+        const artistsUrl = `${server}/rest/getArtists.view?${creds}&v=1.13.0&c=Feishin&f=json`;
+        const artistsResp = await fetch(artistsUrl);
+        const artistsData = await artistsResp.json();
+
+        const artists = artistsData["subsonic-response"]?.artists?.index?.flatMap(i => i.artist || []) || [];
+        console.log(`✅ Found ${artists.length} artists`);
+
+        if (artists.length === 0) {
+          console.warn("⚠️ No artists found");
+          return;
+        }
+
+        // Stage 1: Get all songs using efficient batching
+        // Use getAlbumList2 to get all albums, then getMusicDirectory for songs
+        console.log("📊 Progress: Fetching all albums...");
+
+        const allSongs = [];
+        const batchSize = 500; // Subsonic API typically supports up to 500
+        let offset = 0;
+        let totalAlbums = 0;
+        let albumsFetched = 0;
+
+        // First, get total count of albums
+        const countUrl = `${server}/rest/getAlbumList2.view?${creds}&v=1.13.0&c=Feishin&f=json&type=alphabeticalByName&size=1&offset=0`;
+        const countResp = await fetch(countUrl);
+        const countData = await countResp.json();
+        totalAlbums = countData["subsonic-response"]?.albumList2?.album?.length || 0;
+
+        console.log(`📚 Fetching albums in batches of ${batchSize}...`);
+
+        // Fetch all albums in large batches
+        const albums = [];
+        while (true) {
+          const albumUrl = `${server}/rest/getAlbumList2.view?${creds}&v=1.13.0&c=Feishin&f=json&type=alphabeticalByName&size=${batchSize}&offset=${offset}`;
+          const albumResp = await fetch(albumUrl);
+          const albumData = await albumResp.json();
+          const batch = albumData["subsonic-response"]?.albumList2?.album || [];
+
+          if (batch.length === 0) break;
+
+          albums.push(...batch);
+          offset += batch.length;
+          console.log(`📊 Progress: ${offset} albums fetched...`);
+
+          if (batch.length < batchSize) break; // Last batch
+        }
+
+        console.log(`✅ Total albums found: ${albums.length}`);
+
+        // Now fetch songs for each album (this is the bottleneck)
+        // We'll do this in parallel batches to speed it up
+        const parallelRequests = 500; // Fetch 100 albums simultaneously
+
+        for (let i = 0; i < albums.length; i += parallelRequests) {
+          const albumBatch = albums.slice(i, i + parallelRequests);
+
+          const songPromises = albumBatch.map(async (album) => {
+            const songUrl = `${server}/rest/getAlbum.view?${creds}&v=1.13.0&c=Feishin&f=json&id=${album.id}`;
+            const songResp = await fetch(songUrl);
+            const songData = await songResp.json();
+            return songData["subsonic-response"]?.album?.song || [];
+          });
+
+          const batchResults = await Promise.all(songPromises);
+          batchResults.forEach(songs => allSongs.push(...songs));
+
+          albumsFetched += albumBatch.length;
+          const progress = ((albumsFetched / albums.length) * 100).toFixed(1);
+          console.log(`📊 Progress: ${albumsFetched}/${albums.length} albums processed (${progress}%) - ${allSongs.length} songs so far...`);
+        }
+
+        const endTime = Date.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+        console.log(`\n🎉 STAGE 1 COMPLETE!`);
+        console.log(`⏱️ Time taken: ${duration} seconds`);
+        console.log(`🎵 Total songs found: ${allSongs.length}`);
+        console.log(`📀 Total albums: ${albums.length}`);
+        console.log(`🎤 Total artists: ${artists.length}`);
+        console.log(`\n📋 Sample songs (first 100):`);
+        console.table(
+          allSongs.slice(0, 100).map(s => ({
+            id: s.id,
+            title: s.title,
+            artist: s.artist,
+            album: s.album,
+            duration: s.duration,
+            year: s.year
+          }))
+        );
+
+        // Store for later stages
+        window._customPluginData = {
+          artists,
+          albums,
+          songs: allSongs,
+          fetchTime: duration
+        };
+
+        console.log(`\n💾 Data stored in window._customPluginData for next stages`);
+
+      } catch (e) {
+        console.error("❌ Error fetching songs:", e);
+      }
     });
 
     return btn;
