@@ -1,16 +1,18 @@
 /**
  * Context Menu Button Module
- * Adds custom button to Feishin's context menu
+ * Adds custom button to Feishin's context menu and handles UI integration
  */
 
 import { AuthUtils } from './auth-utils.js';
 import { SongFetcher } from './song-fetcher.js';
 import { OpenAIAgent } from './openai-agent.js';
+import { ContextDetector } from './context-detector.js';
 
 export class ContextMenuButton {
   constructor() {
     this.menuSelector = "div._container_1w9l4_1";
     this.customButtonId = "custom-context-button";
+    this.currentContext = null; // Store context information
     this.init();
   }
 
@@ -43,7 +45,7 @@ export class ContextMenuButton {
                height="1em" width="1em" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 5v14m-7-7h14"></path>
           </svg>
-          My Custom Action
+          Generate Playlist
         </div>
       </div>
     `;
@@ -54,10 +56,10 @@ export class ContextMenuButton {
   }
 
   /**
-   * Handle custom button click - fetch all songs and test OpenAI
+   * Handle custom button click - fetch all songs and generate playlist
    */
   async handleButtonClick() {
-    console.log("🪄 Custom context action clicked!");
+    console.log("🪄 Generate Playlist button clicked!");
 
     if (!AuthUtils.isAuthenticated()) {
       console.error("❌ Not authenticated");
@@ -65,18 +67,22 @@ export class ContextMenuButton {
     }
 
     try {
-      // Step 1: Fetch all songs
+      // Use the context captured when menu opened
+      const context = this.currentContext || ContextDetector.extractContext();
+      console.log("📋 Using context:", context);
+
+      // Fetch all songs
       const songFetcher = new SongFetcher();
       const data = await songFetcher.fetchAllSongs();
       songFetcher.storeData(data);
 
-      // Step 2: Test OpenAI API connection
-      console.log("\n🤖 Starting OpenAI test...");
+      // Generate playlist using OpenAI
+      console.log("\n🤖 Generating playlist with OpenAI...");
       const openaiAgent = new OpenAIAgent();
-      await openaiAgent.sendTestMessage();
+      await openaiAgent.generatePlaylist(context, data.songs);
 
     } catch (e) {
-      console.error("❌ Error in song fetch process:", e);
+      console.error("❌ Error in playlist generation process:", e);
     }
   }
 
@@ -89,6 +95,10 @@ export class ContextMenuButton {
         for (const node of m.addedNodes) {
           if (node.nodeType === 1 && node.matches(this.menuSelector)) {
             console.log("📋 Context menu detected");
+
+            // Extract context WHEN menu opens, not when button is clicked
+            this.currentContext = ContextDetector.extractContext();
+            console.log("📋 Context captured:", this.currentContext);
 
             // Avoid adding multiple times
             if (!node.querySelector(`#${this.customButtonId}`)) {
