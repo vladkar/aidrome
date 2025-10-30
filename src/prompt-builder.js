@@ -8,12 +8,14 @@ export class PromptBuilder {
    * Build a context-aware prompt for playlist generation
    * @param {Object} context - The context information (what was clicked)
    * @param {Array} allSongs - All songs to include in the prompt
+   * @param {number} playlistSize - Target number of songs for the playlist (default: 100)
    * @returns {Object} - {prompt: string, songData: Array}
    */
-  static buildPrompt(context, allSongs) {
+  static buildPrompt(context, allSongs, playlistSize = 100) {
     let contextDescription = '';
     let basePrompt = '';
     const items = context.data || context.items || []; // Support both data and items properties
+    const maxSongs = 200; // Hard limit
 
     // Build context description based on what was clicked
     switch (context.type) {
@@ -24,7 +26,7 @@ export class PromptBuilder {
           const title = song.name || song.title || 'Unknown';
           const album = song.album?.name || song.album || 'Unknown Album';
           contextDescription = `User selected a single song: "${title}" by ${artist} from the album "${album}".`;
-          basePrompt = `Create a playlist of 30-50 songs that would go well with this song. Consider similar genre, mood, era, and artist style. Maximum 200 songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of this song. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Focus on the musical style, atmosphere, and energy level rather than just the artist. Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -36,7 +38,7 @@ export class PromptBuilder {
             return `"${title}" by ${artist}`;
           }).join(', ');
           contextDescription = `User selected ${items.length} songs: ${songList}${items.length > 5 ? ', and more' : ''}.`;
-          basePrompt = `Create a playlist of 50-100 songs that complement these selected songs. Analyze the common themes, genres, and moods. Maximum 200 songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these songs. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Analyze the common musical themes, atmosphere, and energy but ensure wide artist diversity. Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -46,7 +48,7 @@ export class PromptBuilder {
           const albumName = album.name || album.albumName || 'Unknown Album';
           const artistName = album.albumArtists?.[0]?.name || album.artistName || '';
           contextDescription = `User selected an album: "${albumName}"${artistName ? ` by ${artistName}` : ''}.`;
-          basePrompt = `Create a playlist of 50-100 songs that would appeal to someone who enjoys this album. Include similar artists and complementary styles. Maximum 200 songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of this album. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Focus on complementary musical styles and atmosphere rather than just similar artists. Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -54,7 +56,7 @@ export class PromptBuilder {
         if (items.length > 0) {
           const albumList = items.slice(0, 5).map(a => `"${a.name || a.albumName || 'Unknown'}"`).join(', ');
           contextDescription = `User selected ${items.length} albums: ${albumList}${items.length > 5 ? ', and more' : ''}.`;
-          basePrompt = `Create a playlist of 100-150 songs that would appeal to fans of these albums. Find common themes and complementary music. Maximum 200 songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these albums. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Find common musical themes and atmosphere but ensure wide artist diversity. Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -63,7 +65,7 @@ export class PromptBuilder {
         if (items.length > 0) {
           const artistName = items[0].name || items[0].artistName || 'Unknown Artist';
           contextDescription = `User selected an artist: ${artistName}.`;
-          basePrompt = `Create a playlist of 100-150 songs for fans of this artist. Include their best work and similar artists with comparable style. Maximum 200 songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of ${artistName}. IMPORTANT: Prioritize VARIETY - while you can include some songs by ${artistName}, focus on MANY DIFFERENT ARTISTS with similar musical style. Find artists with comparable sound and energy. Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -71,13 +73,13 @@ export class PromptBuilder {
         if (items.length > 0) {
           const artistList = items.slice(0, 5).map(a => a.name || a.artistName || 'Unknown').join(', ');
           contextDescription = `User selected ${items.length} artists: ${artistList}${items.length > 5 ? ', and more' : ''}.`;
-          basePrompt = `Create a playlist of 100-150 songs for fans of these artists. Include their best work and find common musical themes. Maximum 200 songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these artists. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS beyond the selected ones. Focus on the common musical style and atmosphere. Maximum ${maxSongs} songs.`;
         }
         break;
 
       default:
         contextDescription = 'User wants a general playlist recommendation.';
-        basePrompt = `Create a diverse playlist of 50-100 songs showcasing variety from the music library. Maximum 200 songs.`;
+        basePrompt = `Create a diverse playlist of ${playlistSize} songs showcasing variety from the music library. Maximum ${maxSongs} songs.`;
     }
 
     // Group songs by album for efficient representation

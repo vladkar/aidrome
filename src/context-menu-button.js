@@ -5,7 +5,7 @@
 
 import { AuthUtils } from './auth-utils.js';
 import { SongFetcher } from './song-fetcher.js';
-import { OpenAIAgent } from './openai-agent.js';
+import { AIAgent } from './ai-agent.js';
 
 export class ContextMenuButton {
   constructor() {
@@ -75,10 +75,11 @@ export class ContextMenuButton {
       const data = await songFetcher.fetchAllSongs();
       songFetcher.storeData(data);
 
-      // Generate playlist using OpenAI
-      console.log("\n🤖 Generating playlist with OpenAI...");
-      const openaiAgent = new OpenAIAgent();
-      await openaiAgent.generatePlaylist(context, data.songs);
+      // Generate playlist using AI
+      console.log("\n🤖 Generating playlist with AI...");
+      const aiAgent = new AIAgent();
+      const playlistSize = 100; // Default playlist size, can be made configurable later
+      await aiAgent.generatePlaylist(context, data.songs, playlistSize);
 
     } catch (e) {
       console.error("❌ Error in playlist generation process:", e);
