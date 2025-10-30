@@ -51,17 +51,13 @@ export class OpenAIAgent {
     }
 
     try {
-      // Filter songs to a manageable subset based on context
-      const relevantSongs = this.filterRelevantSongs(context, allSongs);
-      console.log(`🎯 Filtered to ${relevantSongs.length} relevant songs (from ${allSongs.length} total)`);
-
       // Prepare the prompt using PromptBuilder
-      const { prompt } = PromptBuilder.buildPrompt(context, relevantSongs);
+      const { prompt } = PromptBuilder.buildPrompt(context, allSongs);
 
       console.log("📝 Sending prompt to OpenAI...");
       console.log("Context type:", context.type);
       console.log("Total songs in library:", allSongs.length);
-      console.log("Songs sent to AI:", relevantSongs.length);
+      console.log("Songs sent to AI:", allSongs.length);
       console.log("Prompt length (chars):", prompt.length);
       console.log("Estimated tokens:", Math.ceil(prompt.length / 4));
 
@@ -127,86 +123,6 @@ export class OpenAIAgent {
       console.error("❌ Error generating playlist:", e);
       return null;
     }
-  }
-
-  /**
-   * Filter songs to a manageable subset based on context
-   * Limits to ~8000 songs max to stay under gpt-5-mini's 500k token limit
-   */
-  filterRelevantSongs(context, allSongs) {
-    const MAX_SONGS = 8000; // Safe limit for gpt-5-mini (500k TPM)
-
-    // If library is small enough, use all songs
-    if (allSongs.length <= MAX_SONGS) {
-      return allSongs;
-    }
-
-    let filtered = [];
-
-    switch (context.type) {
-      case 'song':
-        // Filter by artist and similar years
-        const song = context.items[0];
-        const artistSongs = allSongs.filter(s => s.artist === song.artist);
-        const yearRange = song.year ? [song.year - 10, song.year + 10] : null;
-        const sameEra = yearRange ? allSongs.filter(s => s.year >= yearRange[0] && s.year <= yearRange[1]) : [];
-
-        // Combine and deduplicate
-        filtered = [...new Set([...artistSongs, ...sameEra])];
-        break;
-
-      case 'songs':
-        // Get all artists from selected songs
-        const artists = [...new Set(context.items.map(s => s.artist))];
-        filtered = allSongs.filter(s => artists.includes(s.artist));
-        break;
-
-      case 'album':
-      case 'albums':
-        // Filter by artist name if available
-        if (context.artistName) {
-          filtered = allSongs.filter(s => s.artist === context.artistName);
-        } else if (context.items) {
-          // For multiple albums, we don't have full artist info from cards
-          // Just use all songs for now
-          filtered = allSongs;
-        }
-        break;
-
-      case 'artist':
-      case 'artists':
-        // Get all songs by this artist
-        if (context.artistName) {
-          filtered = allSongs.filter(s => s.artist === context.artistName);
-        } else if (context.items) {
-          // For multiple artists, filter by all artist names
-          const artistNames = context.items.map(a => a.artistName);
-          filtered = allSongs.filter(s => artistNames.includes(s.artist));
-        }
-        break;
-
-      default:
-        // Random sample for general case
-        filtered = [];
-        break;
-    }
-
-    // If still too many, take a random sample
-    if (filtered.length > MAX_SONGS) {
-      // Shuffle and take first MAX_SONGS
-      filtered = filtered.sort(() => Math.random() - 0.5).slice(0, MAX_SONGS);
-    }
-
-    // If we don't have enough context-specific songs, add random samples
-    if (filtered.length < MAX_SONGS / 2) {
-      const remaining = MAX_SONGS - filtered.length;
-      const filteredIds = new Set(filtered.map(s => s.id));
-      const otherSongs = allSongs.filter(s => !filteredIds.has(s.id));
-      const randomSample = otherSongs.sort(() => Math.random() - 0.5).slice(0, remaining);
-      filtered = [...filtered, ...randomSample];
-    }
-
-    return filtered;
   }
 
   /**

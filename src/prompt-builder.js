@@ -7,47 +7,72 @@ export class PromptBuilder {
   /**
    * Build a context-aware prompt for playlist generation
    * @param {Object} context - The context information (what was clicked)
-   * @param {Array} relevantSongs - Filtered songs to include in the prompt
+   * @param {Array} allSongs - All songs to include in the prompt
    * @returns {Object} - {prompt: string, songData: Array}
    */
-  static buildPrompt(context, relevantSongs) {
+  static buildPrompt(context, allSongs) {
     let contextDescription = '';
     let basePrompt = '';
+    const items = context.data || context.items || []; // Support both data and items properties
 
     // Build context description based on what was clicked
     switch (context.type) {
       case 'song':
-        const song = context.items[0];
-        contextDescription = `User selected a single song: "${song.title}" by ${song.artist} from the album "${song.album}".`;
-        basePrompt = `Create a playlist of 30-50 songs that would go well with this song. Consider similar genre, mood, era, and artist style. Maximum 200 songs.`;
+        if (items.length > 0) {
+          const song = items[0];
+          const artist = song.artistItems?.[0]?.name || song.artists?.[0]?.name || song.artist || 'Unknown Artist';
+          const title = song.name || song.title || 'Unknown';
+          const album = song.album?.name || song.album || 'Unknown Album';
+          contextDescription = `User selected a single song: "${title}" by ${artist} from the album "${album}".`;
+          basePrompt = `Create a playlist of 30-50 songs that would go well with this song. Consider similar genre, mood, era, and artist style. Maximum 200 songs.`;
+        }
         break;
 
       case 'songs':
-        const songList = context.items.slice(0, 5).map(s => `"${s.title}" by ${s.artist}`).join(', ');
-        contextDescription = `User selected ${context.items.length} songs: ${songList}${context.items.length > 5 ? ', and more' : ''}.`;
-        basePrompt = `Create a playlist of 50-100 songs that complement these selected songs. Analyze the common themes, genres, and moods. Maximum 200 songs.`;
+        if (items.length > 0) {
+          const songList = items.slice(0, 5).map(s => {
+            const title = s.name || s.title || 'Unknown';
+            const artist = s.artistItems?.[0]?.name || s.artists?.[0]?.name || s.artist || 'Unknown Artist';
+            return `"${title}" by ${artist}`;
+          }).join(', ');
+          contextDescription = `User selected ${items.length} songs: ${songList}${items.length > 5 ? ', and more' : ''}.`;
+          basePrompt = `Create a playlist of 50-100 songs that complement these selected songs. Analyze the common themes, genres, and moods. Maximum 200 songs.`;
+        }
         break;
 
       case 'album':
-        contextDescription = `User selected an album: "${context.albumName}"${context.artistName ? ` by ${context.artistName}` : ''}.`;
-        basePrompt = `Create a playlist of 50-100 songs that would appeal to someone who enjoys this album. Include similar artists and complementary styles. Maximum 200 songs.`;
+        if (items.length > 0) {
+          const album = items[0];
+          const albumName = album.name || album.albumName || 'Unknown Album';
+          const artistName = album.albumArtists?.[0]?.name || album.artistName || '';
+          contextDescription = `User selected an album: "${albumName}"${artistName ? ` by ${artistName}` : ''}.`;
+          basePrompt = `Create a playlist of 50-100 songs that would appeal to someone who enjoys this album. Include similar artists and complementary styles. Maximum 200 songs.`;
+        }
         break;
 
       case 'albums':
-        const albumList = context.items.slice(0, 5).map(a => `"${a.albumName}"`).join(', ');
-        contextDescription = `User selected ${context.items.length} albums: ${albumList}${context.items.length > 5 ? ', and more' : ''}.`;
-        basePrompt = `Create a playlist of 100-150 songs that would appeal to fans of these albums. Find common themes and complementary music. Maximum 200 songs.`;
+        if (items.length > 0) {
+          const albumList = items.slice(0, 5).map(a => `"${a.name || a.albumName || 'Unknown'}"`).join(', ');
+          contextDescription = `User selected ${items.length} albums: ${albumList}${items.length > 5 ? ', and more' : ''}.`;
+          basePrompt = `Create a playlist of 100-150 songs that would appeal to fans of these albums. Find common themes and complementary music. Maximum 200 songs.`;
+        }
         break;
 
       case 'artist':
-        contextDescription = `User selected an artist: ${context.artistName}.`;
-        basePrompt = `Create a playlist of 100-150 songs for fans of this artist. Include their best work and similar artists with comparable style. Maximum 200 songs.`;
+      case 'albumArtist':
+        if (items.length > 0) {
+          const artistName = items[0].name || items[0].artistName || 'Unknown Artist';
+          contextDescription = `User selected an artist: ${artistName}.`;
+          basePrompt = `Create a playlist of 100-150 songs for fans of this artist. Include their best work and similar artists with comparable style. Maximum 200 songs.`;
+        }
         break;
 
       case 'artists':
-        const artistList = context.items.slice(0, 5).map(a => a.artistName).join(', ');
-        contextDescription = `User selected ${context.items.length} artists: ${artistList}${context.items.length > 5 ? ', and more' : ''}.`;
-        basePrompt = `Create a playlist of 100-150 songs for fans of these artists. Include their best work and find common musical themes. Maximum 200 songs.`;
+        if (items.length > 0) {
+          const artistList = items.slice(0, 5).map(a => a.name || a.artistName || 'Unknown').join(', ');
+          contextDescription = `User selected ${items.length} artists: ${artistList}${items.length > 5 ? ', and more' : ''}.`;
+          basePrompt = `Create a playlist of 100-150 songs for fans of these artists. Include their best work and find common musical themes. Maximum 200 songs.`;
+        }
         break;
 
       default:
@@ -57,7 +82,7 @@ export class PromptBuilder {
 
     // Group songs by album for efficient representation
     const albumGroups = {};
-    relevantSongs.forEach(song => {
+    allSongs.forEach(song => {
       const albumKey = `${song.artist}|||${song.album}|||${song.year || 'N/A'}`;
       if (!albumGroups[albumKey]) {
         albumGroups[albumKey] = [];
@@ -73,16 +98,16 @@ export class PromptBuilder {
     });
 
     // Create a summary of the library
-    const artistCount = new Set(relevantSongs.map(s => s.artist)).size;
+    const artistCount = new Set(allSongs.map(s => s.artist)).size;
     const albumCount = Object.keys(albumGroups).length;
     const yearRange = [
-      Math.min(...relevantSongs.map(s => s.year || 9999)),
-      Math.max(...relevantSongs.map(s => s.year || 0))
+      Math.min(...allSongs.map(s => s.year || 9999)),
+      Math.max(...allSongs.map(s => s.year || 0))
     ];
 
     // Get top artists by song count
     const artistCounts = {};
-    relevantSongs.forEach(s => {
+    allSongs.forEach(s => {
       artistCounts[s.artist] = (artistCounts[s.artist] || 0) + 1;
     });
     const topArtists = Object.entries(artistCounts)
@@ -98,7 +123,7 @@ export class PromptBuilder {
 ${basePrompt}
 
 LIBRARY OVERVIEW:
-- Total songs: ${relevantSongs.length}
+- Total songs: ${allSongs.length}
 - Total artists: ${artistCount}
 - Total albums: ${albumCount}
 - Year range: ${yearRange[0]} - ${yearRange[1]}
@@ -114,7 +139,7 @@ Please analyze the library and return a JSON array containing ONLY the song IDs 
 
 Return ONLY the JSON array, no additional text or explanation.`;
 
-    return { prompt, songData: relevantSongs };
+    return { prompt, songData: allSongs };
   }
 }
 

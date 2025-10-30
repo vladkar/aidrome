@@ -236,13 +236,24 @@ export class OpenAIFieldInjector {
 
       // Capture the initial state
       try {
+        const currentServer = AuthUtils.getCurrentServer();
         initialAuthState = {
           serverCount: AuthUtils.getServerCount(),
-          currentServerId: AuthUtils.getCurrentServer()?.id || null,
-          hasCurrentServer: !!AuthUtils.getCurrentServer()
+          currentServerId: currentServer?.id || null,
+          hasCurrentServer: !!currentServer,
+          credential: currentServer?.credential || null,
+          url: currentServer?.url || null,
+          username: currentServer?.username || null
         };
       } catch (e) {
-        initialAuthState = { serverCount: 0, currentServerId: null, hasCurrentServer: false };
+        initialAuthState = {
+          serverCount: 0,
+          currentServerId: null,
+          hasCurrentServer: false,
+          credential: null,
+          url: null,
+          username: null
+        };
       }
 
       // Monitor localStorage for successful authentication
@@ -262,8 +273,13 @@ export class OpenAIFieldInjector {
           const serverChanged = currentServerId && currentServerId !== initialAuthState.currentServerId;
           const hasValidCreds = currentServer?.credential && currentServer?.url && currentServer?.username;
 
-          if ((serverAdded || serverChanged) && hasValidCreds) {
-            console.log("✅ Authentication successful");
+          // Check if existing server was updated (same ID but credentials changed)
+          const serverUpdated = currentServerId === initialAuthState.currentServerId &&
+                                currentServer?.credential !== initialAuthState.credential &&
+                                hasValidCreds;
+
+          if ((serverAdded || serverChanged || serverUpdated) && hasValidCreds) {
+            console.log("✅ Authentication successful" + (serverUpdated ? " (server updated)" : ""));
 
             if (this.openaiKeyValue && this.openaiKeyValue.trim()) {
               this.saveOpenAIKey(this.openaiKeyValue);
@@ -303,15 +319,24 @@ export class OpenAIFieldInjector {
               if (passwordWrapper) {
                 // Insert OpenAI field after password field (async)
                 this.createOpenAIField().then(openaiField => {
-                  passwordWrapper.parentNode.insertBefore(
-                    openaiField,
-                    passwordWrapper.nextSibling
-                  );
+                  // Safety check: ensure elements are still in the DOM
+                  if (passwordWrapper.parentNode && document.body.contains(passwordWrapper)) {
+                    passwordWrapper.parentNode.insertBefore(
+                      openaiField,
+                      passwordWrapper.nextSibling
+                    );
 
-                  console.log("✅ OpenAI key field injected");
+                    console.log("✅ OpenAI key field injected");
+                  } else {
+                    console.warn("⚠️ Password wrapper was removed from DOM, skipping OpenAI field injection");
+                  }
 
-                  // Intercept form submission
-                  this.interceptFormSubmission(form);
+                  // Intercept form submission (even if injection failed, we still want to monitor)
+                  if (document.body.contains(form)) {
+                    this.interceptFormSubmission(form);
+                  }
+                }).catch(err => {
+                  console.error("❌ Error creating OpenAI field:", err);
                 });
               }
             }
