@@ -6,7 +6,6 @@
 import { AuthUtils } from './auth-utils.js';
 import { SongFetcher } from './song-fetcher.js';
 import { OpenAIAgent } from './openai-agent.js';
-import { ContextDetector } from './context-detector.js';
 
 export class ContextMenuButton {
   constructor() {
@@ -68,7 +67,7 @@ export class ContextMenuButton {
 
     try {
       // Use the context captured when menu opened
-      const context = this.currentContext || ContextDetector.extractContext();
+      const context = this.currentContext || window.feishinContextInterceptor?.getCurrent();
       console.log("📋 Using context:", context);
 
       // Fetch all songs
@@ -90,21 +89,19 @@ export class ContextMenuButton {
    * Monitor for context menu and inject button
    */
   startMenuMonitoring() {
+    // Listen to context capture events
+    window.addEventListener('feishin-context-captured', (e) => {
+      this.currentContext = e.detail;
+    });
+
     const observer = new MutationObserver((mutations) => {
       for (const m of mutations) {
         for (const node of m.addedNodes) {
           if (node.nodeType === 1 && node.matches(this.menuSelector)) {
-            console.log("📋 Context menu detected");
-
-            // Extract context WHEN menu opens, not when button is clicked
-            this.currentContext = ContextDetector.extractContext();
-            console.log("📋 Context captured:", this.currentContext);
-
             // Avoid adding multiple times
             if (!node.querySelector(`#${this.customButtonId}`)) {
               const btn = this.createCustomButton();
               node.querySelector(".mantine-Stack-root")?.appendChild(btn);
-              console.log("✅ Custom button added to context menu");
             }
           }
         }
@@ -114,4 +111,5 @@ export class ContextMenuButton {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 }
+
 

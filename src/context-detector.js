@@ -1,180 +1,275 @@
 /**
- * Context Detector Module
- * Detects what was selected/clicked in Feishin's UI
+ * Context Detector
+ * Advanced detection of current music context through multiple strategies
  */
 
 export class ContextDetector {
-  /**
-   * Extract context information from the page
-   * Returns: {type: string, items?: array, albumName?: string, artistName?: string, albumId?: string, artistId?: string}
-   */
-  static extractContext() {
-    const context = {
-      type: 'unknown',
-      items: []
-    };
-
-    console.log("🔍 Extracting context from page...");
-    console.log("Current URL:", window.location.href);
-
-    // Check for "X selected" button in context menu (Feishin pattern)
-    const contextMenuButton = document.querySelector('._context-menu-button_1w9l4_11 ._left_1w9l4_33');
-    if (contextMenuButton) {
-      const selectionText = contextMenuButton.textContent.trim();
-      console.log("📋 Context menu button text:", selectionText);
-
-      if (selectionText.includes('selected')) {
-        const count = parseInt(selectionText.match(/(\d+)\s+selected/)?.[1] || '0');
-        console.log(`📋 Found ${count} selected items`);
-
-        // Find selected rows in AG Grid (for songs)
-        const selectedRows = document.querySelectorAll('.ag-row-selected');
-        console.log(`📋 Found ${selectedRows.length} selected AG Grid rows`);
-
-        if (selectedRows.length > 0) {
-          context.type = selectedRows.length > 1 ? 'songs' : 'song';
-          context.items = Array.from(selectedRows).map(row => this.extractSongFromAGGridRow(row)).filter(Boolean);
-          console.log(`✅ Extracted ${context.items.length} songs from selected rows`);
-          if (context.items.length > 0) return context;
-        }
-      }
+    constructor() {
+        this.currentContext = null;
+        this.lastKnownItem = null;
+        this.setupStrategies();
+        console.log("🔍 Context Detector initialized");
     }
 
-    // Check for selected album/artist cards (when on list pages, not inside an album/artist)
-    if (contextMenuButton?.textContent.includes('selected')) {
-      const selectedCards = document.querySelectorAll('[data-selected="true"]');
-      console.log(`📋 Found ${selectedCards.length} selected cards with data-selected`);
-
-      if (selectedCards.length > 0) {
-        const albums = [];
-        const artists = [];
-
-        selectedCards.forEach(card => {
-          // Try to extract album info
-          const albumLink = card.querySelector('a[href*="/albums/"]');
-          if (albumLink) {
-            const albumName = albumLink.textContent?.trim() || card.querySelector('[class*="title"]')?.textContent?.trim();
-            const albumId = albumLink.href.match(/\/albums\/([^/?]+)/)?.[1];
-            if (albumName) {
-              albums.push({ albumName, albumId });
-              console.log(`📀 Extracted album: ${albumName}`);
-            }
-          }
-
-          // Try to extract artist info
-          const artistLink = card.querySelector('a[href*="/album-artists/"], a[href*="/artists/"]');
-          if (artistLink) {
-            const artistName = artistLink.textContent?.trim() || card.querySelector('[class*="title"]')?.textContent?.trim();
-            const artistId = artistLink.href.match(/\/(?:album-artists|artists)\/([^/?]+)/)?.[1];
-            if (artistName) {
-              artists.push({ artistName, artistId });
-              console.log(`🎤 Extracted artist: ${artistName}`);
-            }
-          }
+    /**
+     * Setup multiple detection strategies
+     */
+    setupStrategies() {
+        // Strategy 1: Listen to context menu interceptor
+        window.addEventListener('feishin-context-captured', (e) => {
+            this.handleContextMenuCapture(e.detail);
         });
 
-        // Determine context type based on what we found
-        if (albums.length > 0) {
-          if (albums.length === 1) {
-            context.type = 'album';
-            context.albumName = albums[0].albumName;
-            context.albumId = albums[0].albumId;
-            console.log(`✅ Detected single album: ${albums[0].albumName}`);
-          } else {
-            context.type = 'albums';
-            context.items = albums;
-            console.log(`✅ Detected ${albums.length} albums`);
-          }
-          return context;
+        // Strategy 2: Monitor URL changes for detail pages
+        this.monitorUrlChanges();
+
+        // Strategy 3: Monitor playing track
+        this.monitorCurrentTrack();
+
+        // Strategy 4: Monitor hovering/clicking
+        this.setupDomMonitoring();
+    }
+
+    /**
+     * Handle context menu capture from interceptor
+     */
+    handleContextMenuCapture(contextData) {
+        this.currentContext = {
+            source: 'context-menu',
+            type: contextData.type,
+            items: contextData.data,
+            timestamp: contextData.timestamp,
+        };
+
+        this.lastKnownItem = contextData.data[0];
+
+        console.log("📍 Context updated from context menu:", {
+            type: this.currentContext.type,
+            itemName: this.lastKnownItem?.name,
+            itemId: this.lastKnownItem?.id,
+        });
+    }
+
+    /**
+     * Monitor URL changes to detect album/artist detail pages
+     */
+    monitorUrlChanges() {
+        let lastUrl = location.href;
+
+        const observer = new MutationObserver(() => {
+            const currentUrl = location.href;
+            if (currentUrl !== lastUrl) {
+                lastUrl = currentUrl;
+                this.detectFromUrl(currentUrl);
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+
+        // Also listen to popstate for browser navigation
+        window.addEventListener('popstate', () => {
+            this.detectFromUrl(location.href);
+        });
+    }
+
+    /**
+     * Detect context from URL
+     */
+    detectFromUrl(url) {
+        // Match patterns like /library/albums/{id}, /library/artists/{id}, etc.
+        const patterns = {
+            album: /\/library\/albums\/([^/?]+)/,
+            artist: /\/library\/(?:album-)?artists\/([^/?]+)/,
+            playlist: /\/playlists\/([^/?]+)/,
+            genre: /\/library\/genres\/([^/?]+)/,
+        };
+
+        for (const [type, pattern] of Object.entries(patterns)) {
+            const match = url.match(pattern);
+            if (match) {
+                this.currentContext = {
+                    source: 'url',
+                    type: type,
+                    id: match[1],
+                    url: url,
+                    timestamp: Date.now(),
+                };
+
+                console.log(`📍 Context detected from URL: ${type} with ID ${match[1]}`);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Monitor currently playing track
+     */
+    monitorCurrentTrack() {
+        setInterval(() => {
+            try {
+                // Try to access player state from window
+                const playerState = this.getPlayerState();
+                if (playerState && playerState.current?.song) {
+                    const song = playerState.current.song;
+
+                    // Only update if different from last known
+                    if (this.lastKnownItem?.id !== song.id) {
+                        this.lastKnownItem = song;
+                        console.log("🎵 Now playing:", {
+                            name: song.name,
+                            artist: song.artistItems?.[0]?.name,
+                            album: song.album,
+                        });
+                    }
+                }
+            } catch (e) {
+                // Player state not accessible yet
+            }
+        }, 2000);
+    }
+
+    /**
+     * Get player state from React component tree
+     */
+    getPlayerState() {
+        // Try to find React Fiber nodes containing player state
+        const rootElement = document.querySelector('#root');
+        if (!rootElement) return null;
+
+        // Access React internal instance
+        const fiberKey = Object.keys(rootElement).find(key =>
+            key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance')
+        );
+
+        if (!fiberKey) return null;
+
+        try {
+            let fiber = rootElement[fiberKey];
+            let depth = 0;
+
+            // Search through fiber tree for player state
+            while (fiber && depth < 50) {
+                if (fiber.memoizedState?.current?.song) {
+                    return fiber.memoizedState;
+                }
+
+                // Check stateNode
+                if (fiber.stateNode?.current?.song) {
+                    return fiber.stateNode;
+                }
+
+                fiber = fiber.return;
+                depth++;
+            }
+        } catch (e) {
+            // Silent fail
         }
 
-        if (artists.length > 0) {
-          if (artists.length === 1) {
-            context.type = 'artist';
-            context.artistName = artists[0].artistName;
-            context.artistId = artists[0].artistId;
-            console.log(`✅ Detected single artist: ${artists[0].artistName}`);
-          } else {
-            context.type = 'artists';
-            context.items = artists;
-            console.log(`✅ Detected ${artists.length} artists`);
-          }
-          return context;
+        return null;
+    }
+
+    /**
+     * Setup DOM monitoring for clicks and hovers
+     */
+    setupDomMonitoring() {
+        // Monitor clicks on track rows, album cards, etc.
+        document.addEventListener('click', (e) => {
+            this.handleDomInteraction(e.target, 'click');
+        }, true);
+
+        // Monitor context menu (right-click)
+        document.addEventListener('contextmenu', (e) => {
+            this.handleDomInteraction(e.target, 'contextmenu');
+        }, true);
+    }
+
+    /**
+     * Handle DOM interactions to extract context
+     */
+    handleDomInteraction(target, eventType) {
+        // Find closest row or card element
+        const row = target.closest('[role="row"]');
+        const card = target.closest('[class*="card"]');
+        const element = row || card;
+
+        if (!element) return;
+
+        // Try to extract data from React props
+        const reactProps = this.getReactProps(element);
+        if (reactProps) {
+            console.log(`🖱️ DOM ${eventType} detected:`, reactProps);
         }
-      }
     }
 
-    // Check for album page
-    if (window.location.href.includes('/albums/')) {
-      const albumTitle = document.querySelector('h1, [class*="title"], .mantine-Title-root')?.textContent?.trim();
-      const albumArtist = document.querySelector('[class*="artist"] a, .mantine-Text-root a')?.textContent?.trim();
-      const albumId = window.location.href.match(/\/albums\/([^/?]+)/)?.[1];
+    /**
+     * Extract React props from DOM element
+     */
+    getReactProps(element) {
+        const keys = Object.keys(element);
+        const reactKey = keys.find(key =>
+            key.startsWith('__reactProps') || key.startsWith('__reactFiber')
+        );
 
-      if (albumTitle || albumId) {
-        context.type = 'album';
-        context.albumName = albumTitle;
-        context.artistName = albumArtist;
-        context.albumId = albumId;
-        console.log(`✅ Detected album context: ${albumTitle} by ${albumArtist}`);
-        return context;
-      }
+        if (!reactKey) return null;
+
+        try {
+            const fiber = element[reactKey];
+
+            // Try to find data in various locations
+            if (fiber.memoizedProps?.data) {
+                return fiber.memoizedProps.data;
+            }
+
+            if (fiber.pendingProps?.data) {
+                return fiber.pendingProps.data;
+            }
+
+            // Navigate through fiber tree
+            let currentFiber = fiber;
+            let depth = 0;
+
+            while (currentFiber && depth < 10) {
+                if (currentFiber.memoizedProps?.item) {
+                    return currentFiber.memoizedProps.item;
+                }
+
+                if (currentFiber.memoizedProps?.node?.data) {
+                    return currentFiber.memoizedProps.node.data;
+                }
+
+                currentFiber = currentFiber.return;
+                depth++;
+            }
+        } catch (e) {
+            // Silent fail
+        }
+
+        return null;
     }
 
-    // Check for artist page
-    if (window.location.href.includes('/artists/') || window.location.href.includes('/album-artists/')) {
-      const artistName = document.querySelector('h1, .mantine-Title-root, ._detail-container_1ncsa_83 a')?.textContent?.trim();
-      const artistId = window.location.href.match(/\/(?:artists|album-artists)\/([^/?]+)/)?.[1];
-
-      if (artistName || artistId) {
-        context.type = 'artist';
-        context.artistName = artistName;
-        context.artistId = artistId;
-        console.log(`✅ Detected artist context: ${artistName}`);
-        return context;
-      }
+    /**
+     * Get current context
+     */
+    getCurrentContext() {
+        return this.currentContext;
     }
 
-    // Fallback: try to get any context from the page
-    console.log("⚠️ Could not determine specific context, using general mode");
-    console.log("Available h1 elements:", Array.from(document.querySelectorAll('h1')).map(h => h.textContent));
-
-    return context;
-  }
-
-  /**
-   * Extract song information from an AG Grid row (Feishin's table format)
-   */
-  static extractSongFromAGGridRow(row) {
-    try {
-      // AG Grid structure: find cells by col-id
-      const titleCell = row.querySelector('[col-id="titleCombined"]');
-      const albumCell = row.querySelector('[col-id="album"]');
-
-      if (!titleCell) return null;
-
-      // Extract title from the metadata wrapper
-      const title = titleCell.querySelector('._metadata-wrapper_ypsy4_34 > div:first-child')?.textContent?.trim();
-
-      // Extract artist from the metadata wrapper (second div, link)
-      const artist = titleCell.querySelector('._metadata-wrapper_ypsy4_34 a')?.textContent?.trim();
-
-      // Extract album from the album cell
-      const album = albumCell?.querySelector('a')?.textContent?.trim();
-
-      if (!title) return null;
-
-      const songInfo = {
-        title: title || '',
-        artist: artist || 'Unknown Artist',
-        album: album || 'Unknown Album'
-      };
-
-      console.log("🎵 Extracted song:", songInfo);
-      return songInfo;
-    } catch (e) {
-      console.warn("⚠️ Error extracting song from AG Grid row:", e);
-      return null;
+    /**
+     * Get last known item (most recently interacted with)
+     */
+    getLastKnownItem() {
+        return this.lastKnownItem;
     }
-  }
+
+    /**
+     * Get playing track info
+     */
+    getPlayingTrack() {
+        const playerState = this.getPlayerState();
+        return playerState?.current?.song || null;
+    }
 }
 
