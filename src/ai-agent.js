@@ -103,15 +103,11 @@ export class AIAgent {
           model: this.providers.openai.model,
           messages: [
             {
-              role: 'system',
-              content: this.getSystemMessage()
-            },
-            {
               role: 'user',
-              content: prompt
+              content: `${this.getSystemMessage()}\n\n${prompt}`
             }
           ],
-          max_completion_tokens: 10000
+          max_completion_tokens: 100000
         })
       }
     };
@@ -213,10 +209,20 @@ export class AIAgent {
       }
 
       const data = await response.json();
+
+      console.log("🔍 Raw API response structure:", JSON.stringify(data, null, 2).substring(0, 3000));
+      console.log("🔍 Response data.choices:", data.choices);
+      console.log("🔍 Response data.choices[0]:", data.choices?.[0]);
+      console.log("🔍 Response data.choices[0].message:", data.choices?.[0]?.message);
+      console.log("🔍 Response data.choices[0].message.content:", data.choices?.[0]?.message?.content);
+
       const { content: responseText, tokensUsed } = provider.parseResponse(data);
 
       console.log(`✅ ${provider.name} Response received`);
       console.log("Tokens used:", tokensUsed);
+      console.log("Response text length:", responseText?.length || 0);
+      console.log("Response text type:", typeof responseText);
+      console.log("Response text preview:", responseText?.substring(0, 500) || "(empty)");
 
       // Parse the playlist
       const playlist = this.parsePlaylistResponse(responseText, allSongs);
@@ -338,14 +344,51 @@ export class AIAgent {
    */
   parsePlaylistResponse(responseText, allSongs) {
     try {
-      // Try to extract JSON array from response
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
+      console.log("🔍 Parsing AI response...");
+      console.log("Full response text:", responseText);
+
+      // Try multiple strategies to extract JSON array
+      let jsonText = null;
+
+      // Strategy 1: Look for JSON in markdown code blocks
+      const codeBlockMatch = responseText.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/);
+      if (codeBlockMatch) {
+        console.log("📝 Found JSON in markdown code block");
+        jsonText = codeBlockMatch[1];
+      }
+
+      // Strategy 2: Look for raw JSON array
+      if (!jsonText) {
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          console.log("📝 Found raw JSON array");
+          jsonText = jsonMatch[0];
+        }
+      }
+
+      // Strategy 3: Try parsing the entire response as JSON
+      if (!jsonText) {
+        console.log("📝 Attempting to parse entire response as JSON");
+        jsonText = responseText.trim();
+      }
+
+      if (!jsonText) {
         console.error("❌ No JSON array found in response");
+        console.error("Response text:", responseText.substring(0, 1000));
         return null;
       }
 
-      const songIds = JSON.parse(jsonMatch[0]);
+      console.log("🔧 Attempting to parse JSON...");
+      console.log("JSON text preview:", jsonText.substring(0, 500));
+
+      const songIds = JSON.parse(jsonText);
+
+      if (!Array.isArray(songIds)) {
+        console.error("❌ Parsed JSON is not an array");
+        return null;
+      }
+
+      console.log(`✅ Parsed ${songIds.length} song IDs`);
 
       // Create a map for quick lookup
       const songMap = new Map(allSongs.map(s => [s.id, s]));
@@ -355,9 +398,12 @@ export class AIAgent {
         .map(id => songMap.get(id))
         .filter(Boolean); // Remove any null/undefined entries
 
+      console.log(`✅ Mapped ${playlist.length} valid songs (${songIds.length - playlist.length} IDs not found)`);
+
       return playlist;
     } catch (e) {
       console.error("❌ Error parsing playlist response:", e);
+      console.error("Response text:", responseText.substring(0, 1000));
       return null;
     }
   }
