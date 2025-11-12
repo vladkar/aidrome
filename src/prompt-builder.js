@@ -26,7 +26,16 @@ export class PromptBuilder {
           const title = song.name || song.title || 'Unknown';
           const album = song.album?.name || song.album || 'Unknown Album';
           contextDescription = `User selected a single song: "${title}" by ${artist} from the album "${album}".`;
-          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of this song. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Focus on the musical style, atmosphere, and energy level rather than just the artist. Maximum ${maxSongs} songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of this song.
+
+STRICT RULES FOR VARIETY:
+1. Include songs from AT LEAST 30-50 DIFFERENT ARTISTS
+2. NEVER include more than 3 songs from the same artist
+3. NEVER include more than 2 songs from the same album
+4. Prioritize musical similarity (genre, mood, tempo, energy) over artist similarity
+5. Mix different eras and subgenres within the same style
+
+Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -38,7 +47,16 @@ export class PromptBuilder {
             return `"${title}" by ${artist}`;
           }).join(', ');
           contextDescription = `User selected ${items.length} songs: ${songList}${items.length > 5 ? ', and more' : ''}.`;
-          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these songs. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Analyze the common musical themes, atmosphere, and energy but ensure wide artist diversity. Maximum ${maxSongs} songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these songs.
+
+STRICT RULES FOR VARIETY:
+1. Include songs from AT LEAST 40-60 DIFFERENT ARTISTS
+2. NEVER include more than 3 songs from the same artist
+3. NEVER include more than 2 songs from the same album
+4. Analyze common themes (mood, tempo, energy, genre) but ensure wide artist diversity
+5. Mix complementary styles and eras
+
+Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -48,7 +66,17 @@ export class PromptBuilder {
           const albumName = album.name || album.albumName || 'Unknown Album';
           const artistName = album.albumArtists?.[0]?.name || album.artistName || '';
           contextDescription = `User selected an album: "${albumName}"${artistName ? ` by ${artistName}` : ''}.`;
-          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of this album. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Focus on complementary musical styles and atmosphere rather than just similar artists. Maximum ${maxSongs} songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs inspired by the GENRE, MOOD, and VIBE of this album.
+
+STRICT RULES FOR VARIETY:
+1. Include songs from AT LEAST 50-70 DIFFERENT ARTISTS
+2. NEVER include more than 2 songs from the same artist
+3. NEVER include more than 1 song from the same album
+4. DO NOT include the entire selected album - use it only as inspiration
+5. Focus on complementary musical styles, atmosphere, and energy
+6. Mix different artists who share similar sonic qualities
+
+Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -56,7 +84,17 @@ export class PromptBuilder {
         if (items.length > 0) {
           const albumList = items.slice(0, 5).map(a => `"${a.name || a.albumName || 'Unknown'}"`).join(', ');
           contextDescription = `User selected ${items.length} albums: ${albumList}${items.length > 5 ? ', and more' : ''}.`;
-          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these albums. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS. Find common musical themes and atmosphere but ensure wide artist diversity. Maximum ${maxSongs} songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs inspired by the GENRE, MOOD, and VIBE of these albums.
+
+STRICT RULES FOR VARIETY:
+1. Include songs from AT LEAST 50-80 DIFFERENT ARTISTS
+2. NEVER include more than 2 songs from the same artist
+3. NEVER include more than 1 song from the same album
+4. DO NOT include tracks from the selected albums - use them only as inspiration
+5. Find common musical themes across the albums and explore similar artists
+6. Mix complementary styles and subgenres
+
+Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -65,7 +103,17 @@ export class PromptBuilder {
         if (items.length > 0) {
           const artistName = items[0].name || items[0].artistName || 'Unknown Artist';
           contextDescription = `User selected an artist: ${artistName}.`;
-          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of ${artistName}. IMPORTANT: Prioritize VARIETY - while you can include some songs by ${artistName}, focus on MANY DIFFERENT ARTISTS with similar musical style. Find artists with comparable sound and energy. Maximum ${maxSongs} songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of ${artistName}.
+
+STRICT RULES FOR VARIETY:
+1. Include AT MOST 5-10 songs from ${artistName}
+2. Include songs from AT LEAST 40-60 OTHER ARTISTS with similar style
+3. NEVER include more than 3 songs from any single artist
+4. NEVER include more than 2 songs from the same album
+5. Focus on artists with comparable sound, energy, and musical approach
+6. Mix different eras and related subgenres
+
+Maximum ${maxSongs} songs.`;
         }
         break;
 
@@ -73,7 +121,17 @@ export class PromptBuilder {
         if (items.length > 0) {
           const artistList = items.slice(0, 5).map(a => a.name || a.artistName || 'Unknown').join(', ');
           contextDescription = `User selected ${items.length} artists: ${artistList}${items.length > 5 ? ', and more' : ''}.`;
-          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these artists. IMPORTANT: Prioritize VARIETY - include songs from MANY DIFFERENT ARTISTS beyond the selected ones. Focus on the common musical style and atmosphere. Maximum ${maxSongs} songs.`;
+          basePrompt = `Create a diverse playlist of ${playlistSize} songs that match the GENRE, MOOD, and VIBE of these artists.
+
+STRICT RULES FOR VARIETY:
+1. Include AT MOST 3-5 songs from each selected artist
+2. Include songs from AT LEAST 50-70 OTHER ARTISTS with similar style
+3. NEVER include more than 5 songs from any single artist
+4. NEVER include more than 2 songs from the same album
+5. Find artists with comparable sound and common musical themes
+6. Mix complementary styles and eras
+
+Maximum ${maxSongs} songs.`;
         }
         break;
 

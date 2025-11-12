@@ -79,11 +79,82 @@ export class ContextMenuButton {
       console.log("\n🤖 Generating playlist with AI...");
       const aiAgent = new AIAgent();
       const playlistSize = 100; // Default playlist size, can be made configurable later
-      await aiAgent.generatePlaylist(context, data.songs, playlistSize);
+      const playlist = await aiAgent.generatePlaylist(context, data.songs, playlistSize);
+
+      // If playlist was generated successfully, automatically save it
+      if (playlist && playlist.length > 0) {
+        // Generate playlist name based on context
+        const playlistName = this.generatePlaylistName(context);
+
+        console.log(`\n💾 Auto-saving playlist as "${playlistName}"...`);
+
+        // Import PlaylistManager dynamically
+        const { PlaylistManager } = await import('./playlist-manager.js');
+        const result = await PlaylistManager.createPlaylist(playlistName, playlist, false);
+
+        if (result.success) {
+          console.log(`✅ Playlist "${playlistName}" saved successfully!`);
+          console.log(`📋 Navigate to Playlists section to see it.`);
+        } else {
+          console.error(`❌ Failed to save playlist: ${result.error}`);
+        }
+      }
 
     } catch (e) {
       console.error("❌ Error in playlist generation process:", e);
     }
+  }
+
+  /**
+   * Generate a playlist name based on the context
+   * @param {Object} context - The context information
+   * @returns {string} - Generated playlist name
+   */
+  generatePlaylistName(context) {
+    const date = new Date();
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const items = context.data || context.items || [];
+
+    switch (context.type) {
+      case 'song':
+        if (items.length > 0) {
+          const song = items[0];
+          const title = song.name || song.title || 'Unknown';
+          return `AI Mix: ${title} (${dateStr})`;
+        }
+        break;
+
+      case 'album':
+        if (items.length > 0) {
+          const album = items[0];
+          const albumName = album.name || album.albumName || 'Unknown';
+          return `AI Mix: ${albumName} (${dateStr})`;
+        }
+        break;
+
+      case 'artist':
+      case 'albumArtist':
+        if (items.length > 0) {
+          const artist = items[0];
+          const artistName = artist.name || artist.artistName || 'Unknown';
+          return `AI Mix: ${artistName} (${dateStr})`;
+        }
+        break;
+
+      case 'songs':
+        return `AI Mix: ${items.length} Songs (${dateStr})`;
+
+      case 'albums':
+        return `AI Mix: ${items.length} Albums (${dateStr})`;
+
+      case 'artists':
+        return `AI Mix: ${items.length} Artists (${dateStr})`;
+
+      default:
+        return `AI Playlist (${dateStr})`;
+    }
+
+    return `AI Playlist (${dateStr})`;
   }
 
   /**

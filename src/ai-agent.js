@@ -7,9 +7,21 @@
 import { AuthUtils } from './auth-utils.js';
 import { EncryptionUtils } from './encryption-utils.js';
 import { PromptBuilder } from './prompt-builder.js';
+import { PlaylistManager } from './playlist-manager.js';
 
 export class AIAgent {
   constructor() {
+    // ⚠️ CORS PROXY CONFIGURATION
+    // AI APIs block browser requests due to CORS policy.
+    // Options:
+    // 1. Use a CORS proxy (FOR TESTING ONLY - not secure for production)
+    // 2. Set up your own backend server to forward API requests
+    // 3. Use browser extensions to disable CORS (NOT RECOMMENDED)
+
+    // Set to true to use CORS proxy (TESTING ONLY)
+    this.useCorsProxy = true;
+    this.corsProxy = 'https://corsproxy.io/?';
+
     this.providers = {
       openai: {
         name: 'OpenAI',
@@ -22,12 +34,24 @@ export class AIAgent {
       claude: {
         name: 'Anthropic Claude',
         endpoint: 'https://api.anthropic.com/v1/messages',
-        model: 'claude-sonnet-4.5',
-        maxTokens: 200000,
+        model: 'claude-sonnet-4-5',
+        maxTokens: 500000,
         formatRequest: this.formatClaudeRequest.bind(this),
         parseResponse: this.parseClaudeResponse.bind(this)
       }
     };
+  }
+
+  /**
+   * Wrap URL with CORS proxy if enabled
+   */
+  wrapWithProxy(url) {
+    if (this.useCorsProxy) {
+      console.warn("⚠️ Using CORS proxy - THIS IS FOR TESTING ONLY!");
+      console.warn("⚠️ For production, set up a proper backend server!");
+      return this.corsProxy + encodeURIComponent(url);
+    }
+    return url;
   }
 
   /**
@@ -50,8 +74,15 @@ export class AIAgent {
   getProviderName() {
     try {
       const server = AuthUtils.getCurrentServer();
+      console.log("🔍 Reading provider from server object:", {
+        serverId: server?.id?.substring(0, 8),
+        aiProvider: server?.aiProvider,
+        hasAiKey: !!server?.aiKeyEncrypted,
+        fullServer: server
+      });
       return server?.aiProvider || 'openai';
     } catch (e) {
+      console.error("❌ Error getting provider name:", e);
       return 'openai';
     }
   }
@@ -62,6 +93,7 @@ export class AIAgent {
   async getApiKey() {
     try {
       const server = AuthUtils.getCurrentServer();
+
       if (!server?.aiKeyEncrypted) {
         console.warn("⚠️ No AI API key configured");
         return null;
@@ -92,7 +124,7 @@ export class AIAgent {
    */
   formatOpenAIRequest(prompt, apiKey) {
     return {
-      url: this.providers.openai.endpoint,
+      url: this.providers.openai.endpoint,  // No proxy needed - OpenAI works directly
       options: {
         method: 'POST',
         headers: {
@@ -118,7 +150,7 @@ export class AIAgent {
    */
   formatClaudeRequest(prompt, apiKey) {
     return {
-      url: this.providers.claude.endpoint,
+      url: this.wrapWithProxy(this.providers.claude.endpoint),
       options: {
         method: 'POST',
         headers: {
@@ -128,7 +160,7 @@ export class AIAgent {
         },
         body: JSON.stringify({
           model: this.providers.claude.model,
-          max_tokens: 4096,
+          max_tokens: 8000,
           system: this.getSystemMessage(),
           messages: [
             {
@@ -171,8 +203,13 @@ export class AIAgent {
     const provider = this.getProvider();
     const providerName = this.getProviderName();
 
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     console.log(`🎵 Generating playlist using ${provider.name}...`);
+    console.log(`📡 Provider: ${providerName}`);
+    console.log(`🤖 Model: ${provider.model}`);
+    console.log(`🌐 Endpoint: ${provider.endpoint}`);
     console.log(`🎯 Target playlist size: ${playlistSize} songs`);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     const apiKey = await this.getApiKey();
     if (!apiKey) {
@@ -205,6 +242,10 @@ export class AIAgent {
       if (!response.ok) {
         const error = await response.json();
         console.error(`❌ ${provider.name} API error:`, error);
+        console.error(`❌ Status: ${response.status} ${response.statusText}`);
+        console.error(`❌ Request URL: ${url}`);
+        console.error(`❌ Request headers:`, options.headers);
+        console.error(`❌ Request body:`, options.body);
         return null;
       }
 
@@ -231,6 +272,10 @@ export class AIAgent {
         console.log("\n🎉 PLAYLIST GENERATED!");
         console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         console.log(`📀 Total songs in playlist: ${playlist.length}`);
+
+        // Analyze diversity BEFORE shuffling
+        const diversityStats = PlaylistManager.analyzePlaylistDiversity(playlist);
+
         console.table(playlist.slice(0, 20).map(s => ({
           title: s.title,
           artist: s.artist,
@@ -238,11 +283,20 @@ export class AIAgent {
           year: s.year
         })));
 
-        // Store playlist for later use
-        window._generatedPlaylist = playlist;
-        console.log("\n💾 Playlist stored in window._generatedPlaylist");
+        // Shuffle the playlist on client side
+        const shuffledPlaylist = PlaylistManager.shuffle(playlist);
+        console.log("\n🔀 Playlist shuffled on client side");
 
-        return playlist;
+        // Store both versions for later use
+        window._generatedPlaylist = shuffledPlaylist; // Default to shuffled
+        window._generatedPlaylistOriginal = playlist; // Keep original order
+        window._playlistDiversityStats = diversityStats;
+        console.log("\n💾 Playlists stored:");
+        console.log("   - window._generatedPlaylist (shuffled)");
+        console.log("   - window._generatedPlaylistOriginal (original order)");
+        console.log("   - window._playlistDiversityStats (diversity analysis)");
+
+        return shuffledPlaylist;
       } else {
         console.warn("⚠️ No playlist generated");
         return null;
@@ -406,6 +460,42 @@ export class AIAgent {
       console.error("Response text:", responseText.substring(0, 1000));
       return null;
     }
+  }
+
+  /**
+   * Save a playlist to Subsonic server
+   * @param {string} name - Name for the playlist
+   * @param {Array} songs - Array of song objects
+   * @param {boolean} shouldShuffle - Whether to shuffle before saving (default: true)
+   * @returns {Promise<Object>} - Result from PlaylistManager.createPlaylist
+   */
+  async savePlaylist(name, songs, shouldShuffle = true) {
+    console.log("🎵 Saving playlist via AIAgent...");
+    return await PlaylistManager.createPlaylist(name, songs, shouldShuffle);
+  }
+
+  /**
+   * Save the last generated playlist to Subsonic server
+   * @param {string} name - Name for the playlist
+   * @param {boolean} useOriginalOrder - Use original (unshuffled) order (default: false)
+   * @returns {Promise<Object>} - Result from PlaylistManager.createPlaylist
+   */
+  async saveLastGeneratedPlaylist(name, useOriginalOrder = false) {
+    const playlist = useOriginalOrder
+      ? window._generatedPlaylistOriginal
+      : window._generatedPlaylist;
+
+    if (!playlist || playlist.length === 0) {
+      console.error("❌ No generated playlist found");
+      console.log("💡 Generate a playlist first, then call saveLastGeneratedPlaylist('Playlist Name')");
+      return { success: false, error: 'No playlist available' };
+    }
+
+    console.log(`💾 Saving ${useOriginalOrder ? 'original' : 'shuffled'} generated playlist...`);
+    console.log(`📝 Playlist contains ${playlist.length} songs`);
+
+    // Don't shuffle again since we already have shuffled/original versions
+    return await PlaylistManager.createPlaylist(name, playlist, false);
   }
 
   /**
